@@ -1,6 +1,6 @@
 # neo4j-mcp Python Wheels Builder
 
-Builds platform-specific Python wheels for the [Neo4j official MCP Server](https://github.com/neo4j/mcp) by downloading pre-built Go binaries from GitHub Releases and packaging them into installable `.whl` files.
+Builds platform-specific Python wheels for the [Neo4j Canary MCP Server](https://github.com/neo4j-labs/neo4j-mcp-canary) by downloading pre-built Go binaries from GitHub Releases and packaging them into installable `.whl` files.
 
 Once published to PyPI, users can install the MCP server with no Go toolchain required:
 
