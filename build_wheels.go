@@ -43,9 +43,21 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
+
+// scriptDir is the directory containing this source file, resolved at
+// compile time. Used to locate files that ship alongside build_wheels.go
+// (e.g. DESCRIPTION.md) regardless of the caller's working directory.
+var scriptDir = func() string {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		return "."
+	}
+	return filepath.Dir(file)
+}()
 
 // ---------------------------------------------------------------------------
 // Config
@@ -53,9 +65,9 @@ import (
 
 const (
 	githubRepo     = "neo4j-labs/neo4j-mcp-canary"
-	binaryName     = "neo4j-mcp"
+	binaryName     = "neo4j-mcp-canary"
 	packageName    = "neo4j-mcp-canary"
-	entryPoint     = "neo4j-mcp"
+	entryPoint     = "neo4j-mcp-canary"
 	defaultPyPIURL = "https://upload.pypi.org/legacy/"
 	assetPrefix    = "neo4j-mcp-canary"
 )
@@ -273,11 +285,21 @@ func resolveLicense(licensePath string) ([]byte, error) {
 }
 
 // resolveDescription reads the long description from a local Markdown file.
+// A relative path is tried against the current working directory first,
+// then against the directory containing build_wheels.go, so the default
+// DESCRIPTION.md is picked up regardless of where the command is run from.
 func resolveDescription(descPath string) ([]byte, error) {
 	if descPath == "" {
 		descPath = "DESCRIPTION.md"
 	}
 	data, err := os.ReadFile(descPath)
+	if err != nil && !filepath.IsAbs(descPath) {
+		fallback := filepath.Join(scriptDir, descPath)
+		if data2, err2 := os.ReadFile(fallback); err2 == nil {
+			fmt.Printf("Using description from %s\n", fallback)
+			return data2, nil
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("reading description file %s: %w", descPath, err)
 	}
