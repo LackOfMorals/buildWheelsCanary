@@ -344,6 +344,25 @@ func recordHash(data []byte) string {
 	return "sha256=" + base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
+// Package metadata shared between the wheel's own METADATA file (buildWheel)
+// and the fields submitted to the PyPI upload API (uploadToPyPI) — PyPI
+// renders the project page from the submitted form fields, not by parsing
+// the uploaded wheel, so the two must stay in sync.
+const (
+	pkgSummaryFmt      = "Neo4j official MCP Server version %s — packaged as a Python wheel"
+	pkgProjectURLLabel = "Source"
+	pkgProjectURL      = "https://github.com/neo4j/mcp"
+	pkgClassifier      = "Programming Language :: Python :: 3"
+	pkgLicenseExpr     = "GPL-3.0-or-later"
+	pkgRequiresPython  = ">=3.9"
+	pkgKeywords        = "mcp,neo4j"
+	pkgDescContentType = "text/markdown; charset=UTF-8; variant=GFM"
+)
+
+func pkgSummary(binVer string) string {
+	return fmt.Sprintf(pkgSummaryFmt, binVer)
+}
+
 func buildWheel(
 	binaryData []byte,
 	binaryFilename, binVer, pkg, pyVersion, plat, outputDir string,
@@ -368,17 +387,19 @@ func buildWheel(
 		"Metadata-Version: 2.4\n"+
 			"Name: %s\n"+
 			"Version: %s\n"+
-			"Summary: Neo4j official MCP Server version %s — packaged as a Python wheel\n"+
-			"Project-URL: Source, https://github.com/neo4j/mcp\n"+
-			"Classifier: Programming Language :: Python :: 3\n"+
-			"License-Expression: GPL-3.0-or-later\n"+
+			"Summary: %s\n"+
+			"Project-URL: %s, %s\n"+
+			"Classifier: %s\n"+
+			"License-Expression: %s\n"+
 			"License-File: LICENSE.txt\n"+
-			"Requires-Python: >=3.9\n"+
-			"Keywords: mcp,neo4j\n"+
-			"Description-Content-Type: text/markdown; charset=UTF-8; variant=GFM\n"+
+			"Requires-Python: %s\n"+
+			"Keywords: %s\n"+
+			"Description-Content-Type: %s\n"+
 			"\n"+
 			"%s",
-		pkg, pyVersion, binVer, string(descriptionData))
+		pkg, pyVersion, pkgSummary(binVer), pkgProjectURLLabel, pkgProjectURL,
+		pkgClassifier, pkgLicenseExpr, pkgRequiresPython, pkgKeywords, pkgDescContentType,
+		string(descriptionData))
 
 	wheelMeta := fmt.Sprintf(
 		"Wheel-Version: 1.0\nGenerator: build_wheels.go\nRoot-Is-Purelib: false\nTag: py3-none-%s\n",
@@ -482,8 +503,11 @@ func wheelDigests(data []byte) (md5hex, sha256hex string) {
 }
 
 // uploadToPyPI uploads a single wheel to the PyPI legacy upload endpoint.
-// username is typically "__token__" when using an API token.
-func uploadToPyPI(wheelPath, pkg, version, pypiURL, username, password string) error {
+// username is typically "__token__" when using an API token. PyPI renders
+// the project page (summary, description, etc.) from these form fields —
+// it does not parse them back out of the uploaded wheel — so they must be
+// kept in sync with the METADATA written by buildWheel.
+func uploadToPyPI(wheelPath, pkg, version, binVer string, descriptionData []byte, pypiURL, username, password string) error {
 	wheelData, err := os.ReadFile(wheelPath)
 	if err != nil {
 		return fmt.Errorf("read wheel: %w", err)
@@ -496,15 +520,23 @@ func uploadToPyPI(wheelPath, pkg, version, pypiURL, username, password string) e
 	mw := multipart.NewWriter(body)
 
 	fields := map[string]string{
-		":action":          "file_upload",
-		"protocol_version": "1",
-		"filetype":         "bdist_wheel",
-		"pyversion":        "py3",
-		"metadata_version": "2.4",
-		"name":             pkg,
-		"version":          version,
-		"md5_digest":       md5hex,
-		"sha2_digest":      sha256hex,
+		":action":                  "file_upload",
+		"protocol_version":         "1",
+		"filetype":                 "bdist_wheel",
+		"pyversion":                "py3",
+		"metadata_version":         "2.4",
+		"name":                     pkg,
+		"version":                  version,
+		"md5_digest":               md5hex,
+		"sha256_digest":            sha256hex,
+		"summary":                  pkgSummary(binVer),
+		"description":              string(descriptionData),
+		"description_content_type": pkgDescContentType,
+		"keywords":                 pkgKeywords,
+		"requires_python":          pkgRequiresPython,
+		"classifiers":              pkgClassifier,
+		"license_expression":       pkgLicenseExpr,
+		"project_urls":             pkgProjectURLLabel + ", " + pkgProjectURL,
 	}
 	for k, v := range fields {
 		if err := mw.WriteField(k, v); err != nil {
@@ -709,7 +741,7 @@ func main() {
 
 		if *uploadFlag {
 			fmt.Printf("  ↑ uploading to %s …\n", *pypiURLFlag)
-			if err := uploadToPyPI(outPath, packageName, pyVersion, *pypiURLFlag, *pypiUserFlag, pypiPassword); err != nil {
+			if err := uploadToPyPI(outPath, packageName, pyVersion, binaryVersion, descriptionData, *pypiURLFlag, *pypiUserFlag, pypiPassword); err != nil {
 				fmt.Printf("  ERROR uploading: %v\n\n", err)
 				continue
 			}
