@@ -250,10 +250,18 @@ func resolveLicense(licensePath string) ([]byte, error) {
 		return data, nil
 	}
 
-	url := fmt.Sprintf("https://api.github.com/repos/%s/%s", githubRepo, "LICENSE.txt")
+	url := fmt.Sprintf("https://api.github.com/repos/%s/contents/%s", githubRepo, "LICENSE.txt")
 
 	fmt.Printf("Fetching license from %s …\n", url)
-	resp, err := http.Get(url) //nolint:gosec
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("fetching license: %w", err)
+	}
+	req.Header.Set("Accept", "application/vnd.github.raw")
+	if tok := os.Getenv("GITHUB_TOKEN"); tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fetching license: %w", err)
 	}
